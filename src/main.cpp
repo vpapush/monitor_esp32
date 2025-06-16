@@ -2,10 +2,13 @@
 #include "lv_conf.h"
 #include <lvgl.h>
 #include <TFT_eSPI.h>
+#include <XPT2046_Touchscreen.h>
+#include <SPI.h>
 // #include "ui.h" // Раскомментируйте, когда добавите файлы от SquareLine Studio
 
 // Display and touch
 TFT_eSPI tft = TFT_eSPI();
+XPT2046_Touchscreen ts(TOUCH_CS);
 
 // LVGL display buffer
 static lv_disp_draw_buf_t draw_buf;
@@ -36,22 +39,34 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
     lv_disp_flush_ready(disp);
 }
 
-// Touch read callback - точная копия из рабочего скетча
+// Touch read callback using XPT2046_Touchscreen
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
 {
-    bool touched = tft.getTouch(&touchX, &touchY);
-
-    if (touched) {
-        data->state = LV_INDEV_STATE_PRESSED;
+    if (ts.touched()) {
+        TS_Point p = ts.getPoint();
         
-        // Use raw coordinates directly without any mapping
+        // Map raw coordinates to display coordinates
+        // XPT2046 raw range is typically 0-4095, map to 0-479 for X and 0-319 for Y
+        touchX = map(p.x, 300, 3700, 0, 479);  // Using calibration values
+        touchY = map(p.y, 240, 3600, 0, 319);  // Using calibration values
+        
+        // Constrain to display bounds
+        touchX = constrain(touchX, 0, 479);
+        touchY = constrain(touchY, 0, 319);
+        
+        data->state = LV_INDEV_STATE_PRESSED;
         data->point.x = touchX;
         data->point.y = touchY;
 
-        Serial.print("Touch: X=");
+        Serial.print("Touch: Raw(");
+        Serial.print(p.x);
+        Serial.print(",");
+        Serial.print(p.y);
+        Serial.print(") -> Screen(");
         Serial.print(touchX);
-        Serial.print(", Y=");
+        Serial.print(",");
         Serial.print(touchY);
+        Serial.print(")");
 
         // Check if touch is in settings button area (top-right corner)
         if (touchX > 430 && touchX < 480 && touchY > 0 && touchY < 50) {
@@ -77,40 +92,27 @@ void setup()
     tft.setRotation(3); // Same orientation as working sketch
     tft.fillScreen(TFT_BLACK);
 
-    // Initialize touch with proper settings
-    pinMode(TOUCH_CS, OUTPUT);
-    digitalWrite(TOUCH_CS, HIGH);
+    // Initialize touch controller
+    Serial.println("Initializing XPT2046 touch controller...");
+    ts.begin();
+    ts.setRotation(3); // Match display rotation
     
-    // Set touch calibration AFTER tft.begin()
-    tft.setTouch(calData);
-    
-    Serial.println("Current calibration values:");
-    for(int i = 0; i < 5; i++) {
-        Serial.print("calData[");
-        Serial.print(i);
-        Serial.print("] = ");
-        Serial.println(calData[i]);
-    }
-    
-    Serial.println("Touch calibration set.");
     Serial.println("Touch CS pin: 33");
-    Serial.println("Testing touch detection...");
+    Serial.println("Testing XPT2046 touch detection...");
     
-    // Check touch pin configuration
-    Serial.print("TOUCH_CS pin state: ");
-    Serial.println(digitalRead(TOUCH_CS));
-    
-    // Multiple touch detection attempts
+    // Test touch detection
     bool touchDetected = false;
     for(int i = 0; i < 5; i++) {
-        uint16_t testX, testY;
-        if (tft.getTouch(&testX, &testY)) {
+        if (ts.touched()) {
+            TS_Point p = ts.getPoint();
             Serial.print("Touch detected on attempt ");
             Serial.print(i + 1);
-            Serial.print(": X=");
-            Serial.print(testX);
-            Serial.print(", Y=");
-            Serial.println(testY);
+            Serial.print(": Raw X=");
+            Serial.print(p.x);
+            Serial.print(", Raw Y=");
+            Serial.print(p.y);
+            Serial.print(", Pressure=");
+            Serial.println(p.z);
             touchDetected = true;
             break;
         }
@@ -118,8 +120,10 @@ void setup()
     }
     
     if (!touchDetected) {
-        Serial.println("Touch controller NOT detected after 5 attempts!");
-        Serial.println("Check wiring and touch controller configuration");
+        Serial.println("XPT2046 touch controller NOT detected after 5 attempts!");
+        Serial.println("Please touch the screen to test...");
+    } else {
+        Serial.println("XPT2046 touch controller detected successfully!");
     }
 
     // Initialize LVGL
