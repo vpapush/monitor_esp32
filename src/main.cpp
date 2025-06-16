@@ -42,8 +42,31 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
 // Touch read callback using XPT2046_Touchscreen
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
 {
-    if (ts.touched()) {
+    static bool lastTouchState = false;
+    bool currentTouchState = ts.touched();
+    
+    // Добавляем диагностику состояния тача
+    if (currentTouchState != lastTouchState) {
+        Serial.println(currentTouchState ? "=== TOUCH DETECTED ===" : "=== TOUCH RELEASED ===");
+        lastTouchState = currentTouchState;
+    }
+    
+    if (currentTouchState) {
         TS_Point p = ts.getPoint();
+        
+        Serial.print("Raw touch: X=");
+        Serial.print(p.x);
+        Serial.print(", Y=");
+        Serial.print(p.y);
+        Serial.print(", Z=");
+        Serial.print(p.z);
+        
+        // Проверяем валидность данных
+        if (p.z < 200) {  // Слишком слабое нажатие
+            Serial.println(" [PRESSURE TOO LOW - IGNORING]");
+            data->state = LV_INDEV_STATE_RELEASED;
+            return;
+        }
         
         // Handle negative values (common issue with XPT2046)
         if (p.x < 0) p.x = 0;
@@ -51,10 +74,10 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
         if (p.x > 4095) p.x = 4095;
         if (p.y > 4095) p.y = 4095;
         
-        // Map coordinates for rotation 3 (landscape, USB on right)
-        // These values are typical for 3.5" displays with XPT2046
-        touchX = map(p.y, 300, 3700, 0, 479);  // Y maps to X for rotation 3
-        touchY = map(p.x, 400, 3600, 319, 0);  // X maps to inverted Y for rotation 3
+        // Попробуем разные варианты маппинга для rotation 3
+        // Вариант 1: Прямое маппинг (как в рабочем скетче)
+        touchX = map(p.x, 300, 3700, 0, 479);
+        touchY = map(p.y, 400, 3600, 0, 319);
         
         // Constrain to display bounds
         touchX = constrain(touchX, 0, 479);
@@ -64,22 +87,23 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
         data->point.x = touchX;
         data->point.y = touchY;
 
-        Serial.print("Touch: Raw(");
-        Serial.print(p.x);
-        Serial.print(",");
-        Serial.print(p.y);
-        Serial.print(",");
-        Serial.print(p.z);
-        Serial.print(") -> Screen(");
+        Serial.print(" -> Mapped: X=");
         Serial.print(touchX);
-        Serial.print(",");
+        Serial.print(", Y=");
         Serial.print(touchY);
-        Serial.print(")");
 
-        // Check if touch is in settings button area (top-right corner)
+        // Check if touch is in test button area (top-right corner)
         if (touchX > 430 && touchX < 480 && touchY > 0 && touchY < 50) {
-            Serial.print(" [SETTINGS BUTTON AREA]");
+            Serial.print(" [TEST BUTTON AREA!]");
         }
+        
+        // Check if touch is anywhere in reasonable screen area
+        if (touchX >= 0 && touchX <= 479 && touchY >= 0 && touchY <= 319) {
+            Serial.print(" [VALID SCREEN AREA]");
+        } else {
+            Serial.print(" [OUT OF BOUNDS!]");
+        }
+        
         Serial.println();
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
@@ -208,15 +232,32 @@ void setup()
 void loop()
 {
     static unsigned long lastHeartbeat = 0;
+    static unsigned long lastTouchCheck = 0;
     static int loopCounter = 0;
     
     // Handle LVGL tasks with error handling
     lv_timer_handler();
     
-    // Heartbeat every 5 seconds to show we're alive
-    if (millis() - lastHeartbeat > 5000) {
+    // Проверяем тач каждые 100мс для диагностики
+    if (millis() - lastTouchCheck > 100) {
+        if (ts.touched()) {
+            TS_Point p = ts.getPoint();
+            // Показываем сырые данные тача только если есть касание
+            Serial.print("Touch check: Raw(");
+            Serial.print(p.x);
+            Serial.print(",");
+            Serial.print(p.y);
+            Serial.print(",");
+            Serial.print(p.z);
+            Serial.println(")");
+        }
+        lastTouchCheck = millis();
+    }
+    
+    // Heartbeat every 10 seconds to show we're alive (уменьшили частоту)
+    if (millis() - lastHeartbeat > 10000) {
         loopCounter++;
-        Serial.println("Loop " + String(loopCounter) + " - Free heap: " + String(ESP.getFreeHeap()));
+        Serial.println("Loop " + String(loopCounter) + " - Free heap: " + String(ESP.getFreeHeap()) + " - Touch status: " + (ts.touched() ? "PRESSED" : "RELEASED"));
         Serial.flush();
         lastHeartbeat = millis();
     }
