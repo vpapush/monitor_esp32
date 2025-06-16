@@ -45,10 +45,16 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
     if (ts.touched()) {
         TS_Point p = ts.getPoint();
         
-        // Map raw coordinates to display coordinates
-        // XPT2046 raw range is typically 0-4095, map to 0-479 for X and 0-319 for Y
-        touchX = map(p.x, 300, 3700, 0, 479);  // Using calibration values
-        touchY = map(p.y, 240, 3600, 0, 319);  // Using calibration values
+        // Handle negative values (common issue with XPT2046)
+        if (p.x < 0) p.x = 0;
+        if (p.y < 0) p.y = 0;
+        if (p.x > 4095) p.x = 4095;
+        if (p.y > 4095) p.y = 4095;
+        
+        // Map coordinates for rotation 3 (landscape, USB on right)
+        // These values are typical for 3.5" displays with XPT2046
+        touchX = map(p.y, 300, 3700, 0, 479);  // Y maps to X for rotation 3
+        touchY = map(p.x, 400, 3600, 319, 0);  // X maps to inverted Y for rotation 3
         
         // Constrain to display bounds
         touchX = constrain(touchX, 0, 479);
@@ -62,6 +68,8 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
         Serial.print(p.x);
         Serial.print(",");
         Serial.print(p.y);
+        Serial.print(",");
+        Serial.print(p.z);
         Serial.print(") -> Screen(");
         Serial.print(touchX);
         Serial.print(",");
