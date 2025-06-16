@@ -1,48 +1,50 @@
 
-// Этот код основан на вашем рабочем скетче "sketch_jun7a.ino"
+#include "lv_conf.h"
 #include <lvgl.h>
 #include <TFT_eSPI.h>
 // #include "ui.h" // Раскомментируйте, когда добавите файлы от SquareLine Studio
 
-// Глобальный объект для дисплея и тачскрина
+// Display and touch
 TFT_eSPI tft = TFT_eSPI();
 
-// Буферы и драйверы LVGL
+// LVGL display buffer
 static lv_disp_draw_buf_t draw_buf;
-static lv_color_t buf[480 * 10];
+static lv_color_t buf[480 * 10]; // 10 lines buffer
 static lv_disp_drv_t disp_drv;
 static lv_indev_drv_t indev_drv;
 
-// Калибровочные данные из вашего рабочего скетча
+// Touch calibration - точно те же значения из рабочего скетча
 uint16_t calData[5] = { 300, 3700, 240, 3600, 2 };
 
-// Пин подсветки
+// Backlight control pin
 #define TFT_BL 27
 
-// Глобальные переменные для отладки тача
+// Global touch variables for debugging
 uint16_t touchX, touchY;
 
-// Callback для отправки буфера LVGL на дисплей
-void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
+// Display flush callback
+void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p)
+{
     uint32_t w = (area->x2 - area->x1 + 1);
     uint32_t h = (area->y2 - area->y1 + 1);
-    
+
     tft.startWrite();
     tft.setAddrWindow(area->x1, area->y1, w, h);
-    tft.pushColors((uint16_t *)&color_p->full, w * h, true);
+    tft.pushColors((uint16_t*)&color_p->full, w * h, true);
     tft.endWrite();
-    
+
     lv_disp_flush_ready(disp);
 }
 
-// Callback для чтения координат с тачскрина (точная копия из рабочего скетча)
-void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
+// Touch read callback - точная копия из рабочего скетча
+void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
+{
     bool touched = tft.getTouch(&touchX, &touchY);
 
     if (touched) {
         data->state = LV_INDEV_STATE_PRESSED;
         
-        // Используем сырые координаты напрямую без маппинга
+        // Use raw coordinates directly without any mapping
         data->point.x = touchX;
         data->point.y = touchY;
 
@@ -51,7 +53,7 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
         Serial.print(", Y=");
         Serial.print(touchY);
 
-        // Проверяем попадание в область кнопки настроек (правый верхний угол)
+        // Check if touch is in settings button area (top-right corner)
         if (touchX > 430 && touchX < 480 && touchY > 0 && touchY < 50) {
             Serial.print(" [SETTINGS BUTTON AREA]");
         }
@@ -61,20 +63,21 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
     }
 }
 
-void setup() {
+void setup()
+{
     Serial.begin(115200);
     Serial.println("Starting ESP32 Display based on working sketch...");
 
-    // Инициализация подсветки с PWM
+    // Initialize backlight with PWM
     pinMode(TFT_BL, OUTPUT);
-    analogWrite(TFT_BL, 200); // Начальная яркость ~80% (200/255)
+    analogWrite(TFT_BL, 200); // Start with ~80% brightness (200/255)
 
-    // Инициализация дисплея
+    // Initialize display
     tft.begin();
-    tft.setRotation(3); // Та же ориентация, что и в рабочем скетче
+    tft.setRotation(3); // Same orientation as working sketch
     tft.fillScreen(TFT_BLACK);
 
-    // Установка калибровки тача (ВАЖНО: после tft.begin())
+    // Set touch calibration AFTER tft.begin()
     tft.setTouch(calData);
     
     Serial.println("Current calibration values:");
@@ -89,7 +92,7 @@ void setup() {
     Serial.println("Touch CS pin: 33");
     Serial.println("Testing touch detection...");
     
-    // Тест работы тача
+    // Test if touch is working
     uint16_t testX, testY;
     if (tft.getTouch(&testX, &testY)) {
         Serial.println("Touch controller detected!");
@@ -97,13 +100,13 @@ void setup() {
         Serial.println("Touch controller NOT detected!");
     }
 
-    // Инициализация LVGL
+    // Initialize LVGL
     lv_init();
 
-    // Настройка буфера дисплея
+    // Initialize display buffer
     lv_disp_draw_buf_init(&draw_buf, buf, NULL, 480 * 10);
 
-    // Настройка драйвера дисплея LVGL
+    // Initialize display driver
     lv_disp_drv_init(&disp_drv);
     disp_drv.hor_res = 480;
     disp_drv.ver_res = 320;
@@ -111,23 +114,19 @@ void setup() {
     disp_drv.draw_buf = &draw_buf;
     lv_disp_drv_register(&disp_drv);
 
-    // Настройка драйвера тачскрина LVGL
+    // Initialize input device driver
     lv_indev_drv_init(&indev_drv);
     indev_drv.type = LV_INDEV_TYPE_POINTER;
     indev_drv.read_cb = my_touchpad_read;
     lv_indev_drv_register(&indev_drv);
 
-    // --- Ваш UI от SquareLine Studio ---
-    // ui_init(); // Раскомментируйте эту строку, когда добавите в проект файлы ui.c и ui.h
-    
-    // --- Тестовые объекты для проверки ---
-    // Если ui_init() закомментирован, создадим тестовую надпись и кнопку
+    // Create test UI elements
     lv_obj_t *label = lv_label_create(lv_scr_act());
     lv_label_set_text(label, "Touch screen test!\nTouch anywhere to see coordinates");
     lv_obj_set_style_text_color(label, lv_color_white(), LV_PART_MAIN);
     lv_obj_center(label);
     
-    // Тестовая кнопка в правом верхнем углу (область настроек)
+    // Test button in top-right corner (settings area)
     lv_obj_t *test_btn = lv_btn_create(lv_scr_act());
     lv_obj_set_size(test_btn, 50, 40);
     lv_obj_align(test_btn, LV_ALIGN_TOP_RIGHT, -10, 10);
@@ -141,7 +140,8 @@ void setup() {
     Serial.println("Touch the test button or anywhere on screen...");
 }
 
-void loop() {
-    lv_timer_handler(); // Обработка задач LVGL
+void loop()
+{
+    lv_timer_handler(); // Handle LVGL tasks
     delay(10);
 }
