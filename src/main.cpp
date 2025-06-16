@@ -89,21 +89,34 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
 void setup()
 {
     Serial.begin(115200);
-    Serial.println("Starting ESP32 Display based on working sketch...");
+    delay(2000); // Give time for Serial to initialize
+    Serial.println("=== ESP32 Display Setup Started ===");
+    Serial.flush();
 
     // Initialize backlight with PWM
+    Serial.println("1. Initializing backlight...");
     pinMode(TFT_BL, OUTPUT);
     analogWrite(TFT_BL, 200); // Start with ~80% brightness (200/255)
+    Serial.println("   Backlight OK");
+    Serial.flush();
 
     // Initialize display
+    Serial.println("2. Initializing TFT display...");
     tft.begin();
+    Serial.println("   TFT begin OK");
     tft.setRotation(3); // Same orientation as working sketch
+    Serial.println("   TFT rotation set");
     tft.fillScreen(TFT_BLACK);
+    Serial.println("   TFT screen cleared");
+    Serial.flush();
 
     // Initialize touch controller
-    Serial.println("Initializing XPT2046 touch controller...");
+    Serial.println("3. Initializing XPT2046 touch controller...");
     ts.begin();
+    Serial.println("   Touch begin OK");
     ts.setRotation(3); // Match display rotation
+    Serial.println("   Touch rotation set");
+    Serial.flush();
     
     Serial.println("Touch CS pin: 33");
     Serial.println("Testing XPT2046 touch detection...");
@@ -135,30 +148,44 @@ void setup()
     }
 
     // Initialize LVGL
+    Serial.println("4. Initializing LVGL...");
     lv_init();
+    Serial.println("   LVGL init OK");
+    Serial.flush();
 
     // Initialize display buffer
+    Serial.println("5. Setting up display buffer...");
     lv_disp_draw_buf_init(&draw_buf, buf, NULL, 480 * 10);
+    Serial.println("   Display buffer OK");
+    Serial.flush();
 
     // Initialize display driver
+    Serial.println("6. Registering display driver...");
     lv_disp_drv_init(&disp_drv);
     disp_drv.hor_res = 480;
     disp_drv.ver_res = 320;
     disp_drv.flush_cb = my_disp_flush;
     disp_drv.draw_buf = &draw_buf;
     lv_disp_drv_register(&disp_drv);
+    Serial.println("   Display driver OK");
+    Serial.flush();
 
     // Initialize input device driver
+    Serial.println("7. Registering input driver...");
     lv_indev_drv_init(&indev_drv);
     indev_drv.type = LV_INDEV_TYPE_POINTER;
     indev_drv.read_cb = my_touchpad_read;
     lv_indev_drv_register(&indev_drv);
+    Serial.println("   Input driver OK");
+    Serial.flush();
 
     // Create test UI elements
+    Serial.println("8. Creating UI elements...");
     lv_obj_t *label = lv_label_create(lv_scr_act());
     lv_label_set_text(label, "Touch screen test!\nTouch anywhere to see coordinates");
     lv_obj_set_style_text_color(label, lv_color_white(), LV_PART_MAIN);
     lv_obj_center(label);
+    Serial.println("   Main label created");
     
     // Test button in top-right corner (settings area)
     lv_obj_t *test_btn = lv_btn_create(lv_scr_act());
@@ -167,15 +194,32 @@ void setup()
     lv_obj_t *btn_label = lv_label_create(test_btn);
     lv_label_set_text(btn_label, "TEST");
     lv_obj_center(btn_label);
+    Serial.println("   Test button created");
+    Serial.flush();
 
-    Serial.println("Setup complete!");
+    Serial.println("=== SETUP COMPLETE ===");
     Serial.println("Display: 480x320");
     Serial.println("Settings button should be in top-right corner (around X=450, Y=20)");
     Serial.println("Touch the test button or anywhere on screen...");
+    Serial.println("Free heap: " + String(ESP.getFreeHeap()) + " bytes");
+    Serial.flush();
 }
 
 void loop()
 {
-    lv_timer_handler(); // Handle LVGL tasks
+    static unsigned long lastHeartbeat = 0;
+    static int loopCounter = 0;
+    
+    // Handle LVGL tasks with error handling
+    lv_timer_handler();
+    
+    // Heartbeat every 5 seconds to show we're alive
+    if (millis() - lastHeartbeat > 5000) {
+        loopCounter++;
+        Serial.println("Loop " + String(loopCounter) + " - Free heap: " + String(ESP.getFreeHeap()));
+        Serial.flush();
+        lastHeartbeat = millis();
+    }
+    
     delay(10);
 }
