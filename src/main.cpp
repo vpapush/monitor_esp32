@@ -42,36 +42,49 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
 // Touch read callback using XPT2046_Touchscreen
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
 {
-    static bool lastTouchState = false;
     static unsigned long lastValidTouch = 0;
+    static unsigned long lastCheckTime = 0;
+    
+    // Проверяем касание не чаще чем раз в 30мс (экономим ресурсы)
+    if (millis() - lastCheckTime < 30) {
+        data->state = LV_INDEV_STATE_RELEASED;
+        return;
+    }
+    lastCheckTime = millis();
+    
     bool currentTouchState = ts.touched();
     
     if (currentTouchState) {
         TS_Point p = ts.getPoint();
         
-        // ФИЛЬТРАЦИЯ ЛОЖНЫХ СРАБАТЫВАНИЙ
-        // Проверяем на ложные координаты (-4096, -4096) или слишком большие значения
+        // УСИЛЕННАЯ ФИЛЬТРАЦИЯ ЛОЖНЫХ СРАБАТЫВАНИЙ
+        // 1. Проверяем на классические ложные координаты
         if (p.x == -4096 || p.y == -4096 || p.x < 0 || p.y < 0 || 
-            p.x > 4095 || p.y > 4095 || p.z > 4000) {
-            // Ложное срабатывание - игнорируем
+            p.x > 4095 || p.y > 4095) {
             data->state = LV_INDEV_STATE_RELEASED;
             return;
         }
         
-        // Проверяем валидность данных
-        if (p.z < 200 || p.z > 3500) {  // Неправильное давление
+        // 2. Проверяем давление - должно быть в разумных пределах
+        if (p.z < 300 || p.z > 3000) {
             data->state = LV_INDEV_STATE_RELEASED;
             return;
         }
         
-        // Антидребезг - игнорируем касания слишком близко по времени
-        if (millis() - lastValidTouch < 50) {
+        // 3. Антидребезг - игнорируем касания слишком близко по времени
+        if (millis() - lastValidTouch < 100) {
             data->state = LV_INDEV_STATE_RELEASED;
             return;
         }
         
-        // Проверяем диапазон валидных координат для нашего дисплея
-        if (p.x < 200 || p.x > 3900 || p.y < 200 || p.y > 3900) {
+        // 4. Проверяем валидный диапазон координат (с учетом калибровки)
+        if (p.x < 250 || p.x > 3850 || p.y < 350 || p.y > 3650) {
+            data->state = LV_INDEV_STATE_RELEASED;
+            return;
+        }
+        
+        // 5. Дополнительная проверка - координаты не должны быть на краю
+        if ((p.x < 500 && p.y < 500) || (p.x > 3500 && p.y > 3500)) {
             data->state = LV_INDEV_STATE_RELEASED;
             return;
         }
@@ -86,16 +99,16 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
         Serial.print(", Z=");
         Serial.print(p.z);
         
-        // Handle negative values (common issue with XPT2046)
-        if (p.x < 0) p.x = 0;
+        // Калибровка на основе данных производителя (rotation 3)
+        // Используем более точные значения калибровки
         if (p.y < 0) p.y = 0;
         if (p.x > 4095) p.x = 4095;
         if (p.y > 4095) p.y = 4095;
         
-        // Попробуем разные варианты маппинга для rotation 3
-        // Вариант 1: Прямое маппинг (как в рабочем скетче)
-        touchX = map(p.x, 300, 3700, 0, 479);
-        touchY = map(p.y, 400, 3600, 0, 319);
+        // Калибровка на основе спецификации производителя для ST7796S
+        // rotation 3: width=480, height=320
+        touchX = map(p.x, 250, 3850, 0, 479);
+        touchY = map(p.y, 350, 3650, 0, 319);
         
         // Constrain to display bounds
         touchX = constrain(touchX, 0, 479);
@@ -275,10 +288,10 @@ void loop()
     // Убираем постоянную проверку тача - она вызывает спам в консоли
     // Тач будет проверяться только когда LVGL запрашивает данные
     
-    // Heartbeat every 10 seconds to show we're alive (уменьшили частоту)
+    // Heartbeat every 10 seconds to show we're alive (убираем статус тача - он ложно срабатывает)
     if (millis() - lastHeartbeat > 10000) {
         loopCounter++;
-        Serial.println("Loop " + String(loopCounter) + " - Free heap: " + String(ESP.getFreeHeap()) + " - Touch status: " + (ts.touched() ? "PRESSED" : "RELEASED"));
+        Serial.println("Loop " + String(loopCounter) + " - Free heap: " + String(ESP.getFreeHeap()) + " bytes");
         Serial.flush();
         lastHeartbeat = millis();
     }
