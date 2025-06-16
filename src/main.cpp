@@ -43,30 +43,48 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
 {
     static bool lastTouchState = false;
+    static unsigned long lastValidTouch = 0;
     bool currentTouchState = ts.touched();
-    
-    // Добавляем диагностику состояния тача
-    if (currentTouchState != lastTouchState) {
-        Serial.println(currentTouchState ? "=== TOUCH DETECTED ===" : "=== TOUCH RELEASED ===");
-        lastTouchState = currentTouchState;
-    }
     
     if (currentTouchState) {
         TS_Point p = ts.getPoint();
         
-        Serial.print("Raw touch: X=");
+        // ФИЛЬТРАЦИЯ ЛОЖНЫХ СРАБАТЫВАНИЙ
+        // Проверяем на ложные координаты (-4096, -4096) или слишком большие значения
+        if (p.x == -4096 || p.y == -4096 || p.x < 0 || p.y < 0 || 
+            p.x > 4095 || p.y > 4095 || p.z > 4000) {
+            // Ложное срабатывание - игнорируем
+            data->state = LV_INDEV_STATE_RELEASED;
+            return;
+        }
+        
+        // Проверяем валидность данных
+        if (p.z < 200 || p.z > 3500) {  // Неправильное давление
+            data->state = LV_INDEV_STATE_RELEASED;
+            return;
+        }
+        
+        // Антидребезг - игнорируем касания слишком близко по времени
+        if (millis() - lastValidTouch < 50) {
+            data->state = LV_INDEV_STATE_RELEASED;
+            return;
+        }
+        
+        // Проверяем диапазон валидных координат для нашего дисплея
+        if (p.x < 200 || p.x > 3900 || p.y < 200 || p.y > 3900) {
+            data->state = LV_INDEV_STATE_RELEASED;
+            return;
+        }
+        
+        // Если дошли сюда - касание валидное
+        lastValidTouch = millis();
+        
+        Serial.print("Valid touch: X=");
         Serial.print(p.x);
         Serial.print(", Y=");
         Serial.print(p.y);
         Serial.print(", Z=");
         Serial.print(p.z);
-        
-        // Проверяем валидность данных
-        if (p.z < 200) {  // Слишком слабое нажатие
-            Serial.println(" [PRESSURE TOO LOW - IGNORING]");
-            data->state = LV_INDEV_STATE_RELEASED;
-            return;
-        }
         
         // Handle negative values (common issue with XPT2046)
         if (p.x < 0) p.x = 0;
@@ -136,10 +154,26 @@ void setup()
 
     // Initialize touch controller
     Serial.println("3. Initializing XPT2046 touch controller...");
+    
+    // Дополнительная инициализация SPI для тачскрина
+    pinMode(TOUCH_CS, OUTPUT);
+    digitalWrite(TOUCH_CS, HIGH);
+    delay(100);
+    
     ts.begin();
     Serial.println("   Touch begin OK");
     ts.setRotation(3); // Match display rotation
     Serial.println("   Touch rotation set");
+    
+    // Очистка буфера тачскрина от ложных срабатываний
+    Serial.println("   Clearing touch buffer...");
+    for(int i = 0; i < 10; i++) {
+        if (ts.touched()) {
+            ts.getPoint(); // Читаем и выбрасываем ложные данные
+        }
+        delay(10);
+    }
+    Serial.println("   Touch buffer cleared");
     Serial.flush();
     
     Serial.println("Touch CS pin: 33");
@@ -238,21 +272,8 @@ void loop()
     // Handle LVGL tasks with error handling
     lv_timer_handler();
     
-    // Проверяем тач каждые 100мс для диагностики
-    if (millis() - lastTouchCheck > 100) {
-        if (ts.touched()) {
-            TS_Point p = ts.getPoint();
-            // Показываем сырые данные тача только если есть касание
-            Serial.print("Touch check: Raw(");
-            Serial.print(p.x);
-            Serial.print(",");
-            Serial.print(p.y);
-            Serial.print(",");
-            Serial.print(p.z);
-            Serial.println(")");
-        }
-        lastTouchCheck = millis();
-    }
+    // Убираем постоянную проверку тача - она вызывает спам в консоли
+    // Тач будет проверяться только когда LVGL запрашивает данные
     
     // Heartbeat every 10 seconds to show we're alive (уменьшили частоту)
     if (millis() - lastHeartbeat > 10000) {
