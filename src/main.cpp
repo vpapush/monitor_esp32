@@ -77,6 +77,10 @@ void setup()
     tft.setRotation(3); // Same orientation as working sketch
     tft.fillScreen(TFT_BLACK);
 
+    // Initialize touch with proper settings
+    pinMode(TOUCH_CS, OUTPUT);
+    digitalWrite(TOUCH_CS, HIGH);
+    
     // Set touch calibration AFTER tft.begin()
     tft.setTouch(calData);
     
@@ -92,12 +96,30 @@ void setup()
     Serial.println("Touch CS pin: 33");
     Serial.println("Testing touch detection...");
     
-    // Test if touch is working
-    uint16_t testX, testY;
-    if (tft.getTouch(&testX, &testY)) {
-        Serial.println("Touch controller detected!");
-    } else {
-        Serial.println("Touch controller NOT detected!");
+    // Check touch pin configuration
+    Serial.print("TOUCH_CS pin state: ");
+    Serial.println(digitalRead(TOUCH_CS));
+    
+    // Multiple touch detection attempts
+    bool touchDetected = false;
+    for(int i = 0; i < 5; i++) {
+        uint16_t testX, testY;
+        if (tft.getTouch(&testX, &testY)) {
+            Serial.print("Touch detected on attempt ");
+            Serial.print(i + 1);
+            Serial.print(": X=");
+            Serial.print(testX);
+            Serial.print(", Y=");
+            Serial.println(testY);
+            touchDetected = true;
+            break;
+        }
+        delay(100);
+    }
+    
+    if (!touchDetected) {
+        Serial.println("Touch controller NOT detected after 5 attempts!");
+        Serial.println("Check wiring and touch controller configuration");
     }
 
     // Initialize LVGL
